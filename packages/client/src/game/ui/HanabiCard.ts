@@ -25,13 +25,18 @@ import {
 } from "@hanabi-live/game";
 import { assertDefined, assertNotNull, iRange } from "complete-common";
 import Konva from "konva";
-import { includes } from "lodash";
 import { noteEqual, noteHasMeaning, parseNote } from "../reducers/notesReducer";
 import type { UICard } from "../types/UICard";
 import * as HanabiCardInit from "./HanabiCardInit";
 import * as HanabiCardMouse from "./HanabiCardMouse";
 import { LayoutChild } from "./LayoutChild";
 import { globals } from "./UIGlobals";
+import {
+  PipState,
+  getCardBorderPresentation,
+  getCardIdentityToShow,
+  getCardPipPresentation,
+} from "./cardPresentation";
 import {
   CARD_ANIMATION_LENGTH_SECONDS,
   CARD_FADE,
@@ -50,17 +55,9 @@ import {
 import { animate } from "./konvaHelpers";
 import {
   checkNoteImpossibility,
-  getRankFromNote,
-  getSuitIndexFromNote,
   possibleCardsFromNoteAndClues,
 } from "./noteCheckImpossibility";
 import * as notes from "./notes";
-
-enum PipState {
-  Hidden,
-  Eliminated,
-  Visible,
-}
 
 const DECK_BACK_IMAGE = "deck-back";
 const UNKNOWN_SUIT = getSuit("Unknown");
@@ -386,87 +383,25 @@ export class HanabiCard extends Konva.Group implements NodeWithTooltip, UICard {
     return cardIdentity;
   }
 
+  private getIdentityToShow(cardIdentity: CardIdentity): CardIdentity {
+    return getCardIdentityToShow({
+      cardIdentity,
+      state: this.state,
+      note: this.note,
+      empathy: this.empathy,
+      morphedIdentity: this.isMorphed() ? this.getMorph() : undefined,
+      isStackBase: this.isStackBase,
+      finished: globals.state.finished,
+    });
+  }
+
   getSuitToShow(cardIdentity: CardIdentity): Suit | null {
-    // If we are in Empathy mode, only show the suit if there is only one possibility left.
-    if (this.empathy) {
-      if (this.state.suitIndex !== null && this.state.suitDetermined) {
-        return this.variant.suits[this.state.suitIndex] ?? null;
-      }
-
-      if (this.isMorphed()) {
-        const morphedIdentity = this.getMorph()!;
-        if (
-          morphedIdentity.rank !== null
-          && morphedIdentity.suitIndex !== null
-        ) {
-          return suitIndexToSuit(morphedIdentity.suitIndex, this.variant)!;
-        }
-      }
-
-      return null;
-    }
-
-    // Show the suit if it is known.
-    if (cardIdentity.suitIndex !== null) {
-      const suit = suitIndexToSuit(cardIdentity.suitIndex, this.variant);
-      return suit ?? null;
-    }
-
-    // If we have a note on the card and it only provides possibilities of the same suit, return
-    // that suit.
-    const suitIndexFromNote = getSuitIndexFromNote(this.note, this.state);
-    if (suitIndexFromNote !== null) {
-      return this.variant.suits[suitIndexFromNote]!;
-    }
-
-    return null;
+    const { suitIndex } = this.getIdentityToShow(cardIdentity);
+    return suitIndexToSuit(suitIndex, this.variant) ?? null;
   }
 
   getRankToShow(cardIdentity: CardIdentity): Rank | null {
-    // If we are in Empathy mode, only show the rank if there is only one possibility left.
-    if (this.empathy) {
-      if (this.state.rankDetermined && this.state.rank !== null) {
-        return this.state.rank;
-      }
-
-      if (this.isMorphed()) {
-        const morphedIdentity = this.getMorph()!;
-        if (
-          morphedIdentity.rank !== null
-          && morphedIdentity.suitIndex !== null
-        ) {
-          return morphedIdentity.rank;
-        }
-      }
-
-      return null;
-    }
-
-    // If we have a note on the card and it only provides possibilities of the same rank, show that
-    // rank.
-    const rankFromNote = getRankFromNote(this.note, this.state);
-
-    // For stack bases in ongoing games, we want notes to have precedence over the real identity so
-    // that players can morph the stack in "Throw It in a Hole" variants.
-    if (
-      rankFromNote !== undefined
-      && this.isStackBase
-      && !globals.state.finished
-    ) {
-      return rankFromNote;
-    }
-
-    // Show the rank if it is known.
-    if (cardIdentity.rank !== null) {
-      return cardIdentity.rank;
-    }
-
-    // If we have a note identity on the card, show the rank corresponding to the note.
-    if (rankFromNote !== undefined) {
-      return rankFromNote;
-    }
-
-    return null;
+    return this.getIdentityToShow(cardIdentity).rank;
   }
 
   isMorphed(): boolean {
@@ -595,59 +530,24 @@ export class HanabiCard extends Konva.Group implements NodeWithTooltip, UICard {
   // Border methods
   // --------------
 
-  setBorder(): void {
-    this.cluedBorder.visible(this.shouldShowClueBorder());
-    this.chopMoveBorder.visible(this.shouldShowChopMoveBorder());
-    this.finesseBorder.visible(this.shouldShowFinesseBorder());
-    this.discardPermissionBorder.visible(
-      this.shouldShowDiscardPermissionBorder(),
+  private getBorderPresentation() {
+    return getCardBorderPresentation(
+      this.state,
+      this.note,
+      globals.state.finished,
     );
   }
 
-  private shouldShowAnyBorder() {
-    return !isCardPlayed(this.state) && !isCardDiscarded(this.state);
+  setBorder(): void {
+    const border = this.getBorderPresentation();
+    this.cluedBorder.visible(border.clued);
+    this.chopMoveBorder.visible(border.chopMoved);
+    this.finesseBorder.visible(border.finessed);
+    this.discardPermissionBorder.visible(border.discardPermission);
   }
 
   private shouldShowClueBorder() {
-    return (
-      this.shouldShowAnyBorder()
-      && !this.note.unclued
-      && (isCardClued(this.state) || this.note.clued)
-    );
-  }
-
-  private shouldShowChopMoveBorder() {
-    return (
-      this.note.chopMoved
-      && this.shouldShowAnyBorder()
-      // The clue, finesse, and discard permission borders have precedence over the chop move
-      // border.
-      && !this.shouldShowClueBorder()
-      && !this.shouldShowFinesseBorder()
-      && !this.shouldShowDiscardPermissionBorder()
-      && !globals.state.finished
-    );
-  }
-
-  private shouldShowDiscardPermissionBorder() {
-    return (
-      this.note.discardPermission
-      && this.shouldShowAnyBorder()
-      // The clue border and the finesse border have precedence over the discard permission border.
-      && !this.shouldShowClueBorder()
-      && !this.shouldShowFinesseBorder()
-      && !globals.state.finished
-    );
-  }
-
-  private shouldShowFinesseBorder() {
-    return (
-      this.note.finessed
-      && this.shouldShowAnyBorder()
-      // The clue border has precedence over the finesse border.
-      && !this.shouldShowClueBorder()
-      && !globals.state.finished
-    );
+    return this.getBorderPresentation().clued;
   }
 
   // -----------
@@ -655,69 +555,27 @@ export class HanabiCard extends Konva.Group implements NodeWithTooltip, UICard {
   // -----------
 
   updatePips(): void {
-    const suitPipStates: PipState[] = this.variant.suits.map(
-      () => PipState.Hidden,
+    const presentation = getCardPipPresentation(
+      this.variant,
+      this.state,
+      this.note,
+      this.empathy,
     );
 
-    /** This is a sparse array indexed by rank. */
-    const rankPipStates: PipState[] = [];
-
-    // Default all rank pips to hidden.
-    for (const rank of this.variant.ranks) {
-      rankPipStates[rank] = PipState.Hidden;
-    }
-
-    const possibilities = possibleCardsFromNoteAndClues(this.note, this.state);
-    const ignoreNote = this.empathy;
-    const possibleCardsFromClues = ignoreNote
-      ? this.state.possibleCardsFromClues
-      : possibilities;
-    const possibleCards = this.empathy
-      ? this.state.possibleCardsForEmpathy
-      : this.state.possibleCards;
-
-    // We look through each card that should have a visible pip (eliminated or not).
-    for (const [suitIndex, rank] of possibleCardsFromClues) {
-      // If the card is impossible, eliminate it.
-      const pipState = possibleCards.some(
-        ([s, r]) => s === suitIndex && r === rank,
-      )
-        ? PipState.Visible
-        : PipState.Eliminated;
-
-      // If the suit or rank became visible (is possible), do not overwrite it.
-      suitPipStates[suitIndex] =
-        suitPipStates[suitIndex] === PipState.Visible
-          ? PipState.Visible
-          : pipState;
-      rankPipStates[rank] =
-        rankPipStates[rank] === PipState.Visible ? PipState.Visible : pipState;
-    }
-
-    for (const [suitIndex, pipState] of suitPipStates.entries()) {
-      const pip = this.suitPipsMap.get(suitIndex);
-      const pipPositive = this.suitPipsPositiveMap.get(suitIndex);
-      const x = this.suitPipsXMap.get(suitIndex);
-      const suit = this.variant.suits[suitIndex]!;
-      const possiblePositiveClues = this.state.positiveColorClues.filter(
-        (color) => color.name === suit.name,
-      );
-      const hasPositiveColorClue = possiblePositiveClues.length > 0;
+    for (const suitPip of presentation.suitPips) {
+      const pip = this.suitPipsMap.get(suitPip.suitIndex);
+      const pipPositive = this.suitPipsPositiveMap.get(suitPip.suitIndex);
+      const x = this.suitPipsXMap.get(suitPip.suitIndex);
       if (pip !== undefined && x !== undefined) {
-        updatePip(pipState, hasPositiveColorClue, pip, x, pipPositive);
+        updatePip(suitPip.state, suitPip.positive, pip, x, pipPositive);
       }
     }
 
-    for (const [i, pipState] of rankPipStates.entries()) {
-      const rank = i as Rank;
-      const pip = this.rankPipsMap.get(rank);
-      const x = this.rankPipsXMap.get(rank);
+    for (const rankPip of presentation.rankPips) {
+      const pip = this.rankPipsMap.get(rankPip.rank);
+      const x = this.rankPipsXMap.get(rankPip.rank);
       if (pip !== undefined && x !== undefined) {
-        const hasPositiveRankClue = includes(
-          this.state.positiveRankClues,
-          rank,
-        );
-        updatePip(pipState, hasPositiveRankClue, pip, x);
+        updatePip(rankPip.state, rankPip.positive, pip, x);
       }
     }
   }

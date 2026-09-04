@@ -1,16 +1,12 @@
-import type {
-  CardNote,
-  CardState,
-  Rank,
-  SuitRankTuple,
-  Variant,
-} from "@hanabi-live/game";
+import type { CardNote, CardState, Variant } from "@hanabi-live/game";
 import {
   START_CARD_RANK,
   canCardPossiblyBeFromEmpathy,
 } from "@hanabi-live/game";
 import * as modals from "../../modals";
 import { globals } from "./UIGlobals";
+
+export { possibleCardsFromNoteAndClues } from "./cardPresentation";
 
 export function checkNoteImpossibility(
   variant: Variant,
@@ -62,55 +58,4 @@ export function checkNoteImpossibility(
       `That card cannot possibly be any of ${impossibilities.join(", ")}`,
     );
   }
-}
-
-export function possibleCardsFromNoteAndClues(
-  note: CardNote,
-  state: CardState,
-): readonly SuitRankTuple[] {
-  const possibilitiesWithNotes = note.possibilities.filter(
-    ([suitIndexA, rankA]) =>
-      state.possibleCardsFromClues.some(
-        ([suitIndexB, rankB]) => suitIndexA === suitIndexB && rankA === rankB,
-      ),
-  );
-
-  if (possibilitiesWithNotes.length === 0) {
-    return state.possibleCardsFromClues;
-  }
-
-  return possibilitiesWithNotes;
-}
-
-export function getSuitIndexFromNote(
-  note: CardNote,
-  state: CardState,
-): number | null {
-  if (note.possibilities.length > 0) {
-    const possibilities = possibleCardsFromNoteAndClues(note, state);
-    const [candidateSuitIndex] = possibilities[0]!;
-    if (
-      possibilities.every(([suitIndex]) => suitIndex === candidateSuitIndex)
-    ) {
-      return candidateSuitIndex;
-    }
-  }
-  return null;
-}
-
-export function getRankFromNote(
-  note: CardNote,
-  state: CardState,
-): Rank | undefined {
-  const possibilities = possibleCardsFromNoteAndClues(note, state);
-  const possibleRanks = possibilities.map((possibility) => possibility[1]);
-  const firstPossibleRank = possibleRanks[0];
-  if (firstPossibleRank === undefined) {
-    return undefined;
-  }
-
-  const allPossibilitiesHaveTheSameRank = possibleRanks.every(
-    (rank) => rank === firstPossibleRank,
-  );
-  return allPossibilitiesHaveTheSameRank ? firstPossibleRank : undefined;
 }
