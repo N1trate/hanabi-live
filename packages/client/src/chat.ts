@@ -515,7 +515,12 @@ export function add(data: ServerCommandChatData, fast: boolean): void {
     return;
   }
 
-  const msg = getPreparedMessage(data.msg);
+  let rawMsg = data.msg;
+  // Replace chat suggestions with anchors which, when clicked, are chat commands.
+  if (chat.is($("#lobby-chat-pregame-text"))) {
+    mapTextSegments(rawMsg, fillChatSuggestions);
+  }
+  const msg = getPreparedMessage(rawMsg);
 
   // Typescript has not implemented the required DateTimeFormat option (hourCycle: h23). So we
   // format the hours manually.
@@ -547,15 +552,6 @@ export function add(data: ServerCommandChatData, fast: boolean): void {
       "[Server Notice]",
       '<span class="red">[Server Notice]</span>',
     );
-  }
-  // Replace chat suggestions with anchors which, when clicked, are chat commands.
-  if (chat.is($("#lobby-chat-pregame-text"))) {
-    const regex = /(.*)(@(\/.*)@)(.*)/;
-    let match = regex.exec(line);
-    while (match !== null) {
-      line = `${match[1]}<a href="#" class="suggestion">${match[3]}</a>${match[4]}`;
-      match = regex.exec(line);
-    }
   }
   line += "</span>";
 
@@ -693,6 +689,14 @@ export function getPreparedMessage(rawMsg: string): string {
   });
 
   return msg;
+}
+
+// Chat suggestions are in the form of: @/command@
+function fillChatSuggestions(text: string): string {
+  return text.replaceAll(
+    /@(\/[^@]*)@/g,
+    '<a href="#" class="suggestion">$1</a>',
+  );
 }
 
 // Discord emotes are in the form of: <:PogChamp:254683883033853954>
