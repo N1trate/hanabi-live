@@ -11,6 +11,7 @@ import {
 } from "complete-common";
 import * as KeyCode from "keycode-js";
 import linkifyHtml from "linkify-html";
+import { find as linkifyFind } from "linkifyjs";
 import { globals } from "./Globals";
 import { chatCommands } from "./chatCommands";
 import { FADE_TIME_MS, TYPED_HISTORY_MAX_LENGTH } from "./constants";
@@ -518,7 +519,7 @@ export function add(data: ServerCommandChatData, fast: boolean): void {
   let rawMsg = data.msg;
   // Replace chat suggestions with anchors which, when clicked, are chat commands.
   if (chat.is($("#lobby-chat-pregame-text"))) {
-    mapTextSegments(rawMsg, fillChatSuggestions);
+    rawMsg = mapTextSegments(rawMsg, fillChatSuggestions);
   }
   const msg = getPreparedMessage(rawMsg);
 
@@ -693,9 +694,18 @@ export function getPreparedMessage(rawMsg: string): string {
 
 // Chat suggestions are in the form of: @/command@
 function fillChatSuggestions(text: string): string {
+  const linkSpans = linkifyFind(text);
+
   return text.replaceAll(
     /@(\/[^@]*)@/g,
-    '<a href="#" class="suggestion">$1</a>',
+    (fullMatch, command: string, offset: number) => {
+      const insideLink = linkSpans.some(
+        (span) => offset < span.end && offset + fullMatch.length > span.start,
+      );
+      return insideLink
+        ? fullMatch
+        : `<a href="#" class="suggestion">${command}</a>`;
+    },
   );
 }
 
