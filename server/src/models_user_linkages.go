@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+
 	"github.com/jackc/pgx/v4"
 )
 
@@ -84,8 +85,10 @@ func (*UserLinkages) isLinked(userID int, linkedID int) (bool, error) {
 
 // GetBlockedSeeds composes a map that represents all the seeds that have been played by the specified users
 // or by one of their linked accounts.
+// Only seeds starting with the given prefix (e.g. "p3v0s") are returned,
+// since those are the only ones that the caller can collide with.
 // Note that we use a map to represent these seeds, since this is faster to iterate through
-func (*UserLinkages) GetBlockedSeeds(userIDs []int) (map[string]struct{}, error) {
+func (*UserLinkages) GetBlockedSeeds(userIDs []int, seedPrefix string) (map[string]struct{}, error) {
 	blockedSeeds := make(map[string]struct{})
 	var rows pgx.Rows
 	if v, err := db.Query(context.Background(), `
@@ -97,6 +100,7 @@ func (*UserLinkages) GetBlockedSeeds(userIDs []int) (map[string]struct{}, error)
         JOIN games
             ON games.id = game_participants.game_id
 		WHERE user_linkages.user_id = ANY ($1)
+			AND games.seed LIKE $2
 
 		UNION DISTINCT
 
@@ -106,8 +110,8 @@ func (*UserLinkages) GetBlockedSeeds(userIDs []int) (map[string]struct{}, error)
         JOIN games
             ON games.id = game_participants.game_id
         WHERE game_participants.user_id = ANY ($1)
-        ORDER BY seed
-	`, userIDs); err != nil {
+        	AND games.seed LIKE $2
+	`, userIDs, seedPrefix+"%"); err != nil {
 		return nil, err
 	} else {
 		rows = v

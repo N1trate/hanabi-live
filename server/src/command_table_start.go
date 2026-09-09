@@ -401,7 +401,7 @@ func getNextAvailableSeed(players []*Player, seedPrefix string) (string, error) 
 	}
 
 	var seedMap map[string]struct{}
-	if v, err := models.UserLinkages.GetBlockedSeeds(playerIDs); err != nil {
+	if v, err := models.UserLinkages.GetBlockedSeeds(playerIDs, seedPrefix); err != nil {
 		return "", err
 	} else {
 		seedMap = v

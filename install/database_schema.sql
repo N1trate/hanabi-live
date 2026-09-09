@@ -197,6 +197,9 @@ CREATE TABLE game_participants (
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT game_participants_unique UNIQUE (game_id, user_id)
 );
+/* Serves per-user lookups (e.g. "GetBlockedSeeds()", "GetUserNumGames()");
+   including "game_id" allows for index-only scans when joining to the "games" table */
+CREATE INDEX game_participants_index_user_id ON game_participants (user_id, game_id);
 
 DROP FUNCTION IF EXISTS delete_game_of_deleted_participant;
 CREATE FUNCTION delete_game_of_deleted_participant() RETURNS TRIGGER AS $_$
